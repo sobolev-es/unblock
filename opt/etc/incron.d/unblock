@@ -1,0 +1,1 @@
+/opt/etc/unblock.txt    IN_MODIFY,IN_ATTRIB       /opt/etc/init.d/S60unblock reconfigure

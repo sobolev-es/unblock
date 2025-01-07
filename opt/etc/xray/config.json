@@ -1,0 +1,82 @@
+    "log": {
+        "loglevel": "warning"
+    },
+    "inbounds": [
+        {
+            "port": 1080,
+            "listen": "10.10.0.1",
+            "protocol": "socks",
+            "settings": {
+                "udp": true
+            }
+        },
+        {
+            "port": 12345,      // redirect for tcp (bug with hw_nat)
+            "protocol": "dokodemo-door",
+            "settings": {
+                "network": "tcp",
+                "followRedirect": true
+            },
+            "sniffing": {
+                "enabled": true,
+                "destOverride": ["http", "tls"]
+            },
+            "streamSettings": {
+                "sockopt": {
+                    "tproxy": "redirect"
+                }
+            }
+        },
+        {
+            "port": 12346,      // transparent proxy for udp
+            "protocol": "dokodemo-door",
+            "settings": {
+                "network": "udp",
+                "followRedirect": true
+            },
+            "sniffing": {
+                "enabled": true,
+                "destOverride": ["http", "tls","quic"]
+            },
+            "streamSettings": {
+                "sockopt": {
+                    "tproxy": "tproxy"
+                }
+            }
+        }
+    ],
+    "outbounds": [
+        {
+            "protocol": "vless",
+            "settings": {
+                "vnext": [
+                    {
+                        "address": "SERVER_IP",
+                        "port": SERVER_PORT,
+                        "users": [
+                            {
+                                "id": "USER_ID",
+                                "encryption": "none",
+                                "level": 0
+                            }
+                        ]
+                    }
+                ]
+            },
+            "streamSettings": {
+                "network": "tcp",
+                "security": "reality",
+                "realitySettings": {
+                    "serverName": "CAMUFLAGE_URL",
+                    "fingerprint": "CLIENT_FINGERPRINT",
+                    "publicKey": "PUBLIC_KEY",
+                    "shortId": "SOME_ID",
+                    "spiderX": ""
+                },
+                "sockopt": {
+                     "mark": 255
+                }
+            }
+        }
+    ]
+}

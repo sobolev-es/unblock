@@ -1,0 +1,119 @@
+#!/bin/sh
+
+export PATH=/bin:/usr/bin:/sbin:/usr/sbin:/opt/bin:/opt/sbin
+
+. /opt/etc/unblock.conf || exit 1
+
+chech_dns(){
+	dig google.com &> /dev/null || return 1
+}
+
+init(){
+	# Load TPROXY module
+	lsmod | grep -q TPROXY || insmod /lib/modules/$(uname -r)/xt_TPROXY.ko
+
+	# Create table for TPROXY/PBR
+	if ! ip r l table 100 | grep -q default ; then
+		ip route add local 0.0.0.0/0 dev lo table 100
+		ip rule add fwmark 0x1 table 100
+	fi
+
+	# create set if doesn't exist
+	ipset list $SETNAME &> /dev/null || ipset create $SETNAME hash:net
+}
+
+set_tproxy_rule(){
+	iptables -t mangle -A PREROUTING -p udp -m set --match-set $SETNAME dst -j TPROXY --on-port $TPROXY_PORT --on-ip 127.0.0.1 --tproxy-mark 0x1/0xffffffff
+}
+
+set_redirect_rule(){
+	iptables -t nat -A PREROUTING -m set --match-set $SETNAME dst -p tcp -j REDIRECT --to-ports $REDIRECT_PORT
+}
+
+unset_tproxy_rule(){
+	iptables -t mangle -D PREROUTING -p udp -m set --match-set $SETNAME dst -j TPROXY --on-port $TPROXY_PORT --on-ip 127.0.0.1 --tproxy-mark 0x1/0xffffffff
+}
+
+unset_redirect_rule(){
+	iptables -t nat -D PREROUTING -m set --match-set $SETNAME dst -p tcp -j REDIRECT --to-ports $REDIRECT_PORT
+}
+
+reconfigure(){
+	chech_dns || echo "WARNING: problem with DNS."
+
+	grep -E -v -e '^[[:space:]]*#' -e '^[[:space:]]*$' $UNBLOCK | while read LINE ; do
+		cidr="$(echo $LINE | grep -Eo '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}(/[0-9]{1,2})?')"
+		if [ -n "$cidr" ]; then
+			ipset -exist add $SETNAME $cidr
+			continue
+		fi
+
+		dig +short $LINE | grep -Eo '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}' | awk  -v SETNAME=$SETNAME '{system("ipset -exist add " SETNAME " " $1)}'
+
+		# update dnsmasq config
+		grep -q -w "$LINE" $DNSMASQ_CONF || echo "ipset=/$LINE/$SETNAME" >> $DNSMASQ_CONF
+	done
+
+	[ $DNSMASQ_CONF -nt $LOCKFILE ] && /opt/etc/init.d/S56dnsmasq restart &> /dev/null
+}
+
+start(){
+	init && \
+	set_tproxy_rule && \
+	set_redirect_rule && \
+	reconfigure
+}
+
+stop(){
+	if [ -s "$DNSMASQ_CONF" ] ; then
+		> "$DNSMASQ_CONF"
+		/opt/etc/init.d/S56dnsmasq restart &> /dev/null
+	fi
+	unset_tproxy_rule
+	unset_redirect_rule
+	ip route flush table 100
+	ip rule del fwmark 0x1 table 100
+	ipset destroy $SETNAME
+	rmmod xt_TPROXY
+}
+
+case "$1" in
+	start)
+		if [ -e $RUNNING ] ; then
+			echo "Unblock already running."
+		else
+			start && touch $RUNNING
+		fi
+		;;
+	stop)
+		if [ -e $RUNNING ] ; then
+			stop && rm -f $RUNNING
+		else
+			echo "Unblock is not running."
+		fi
+		;;
+	status)
+		if [ -e $RUNNING ] ; then
+			echo "Unblock is running."
+		else
+			echo "Unblock is not running."
+			exit 1
+		fi
+		;;
+	reconfigure)
+		( flock -n 100 || { echo "Another instance already running. Exiting." ; exit 1 ; } ; reconfigure ) 100>$LOCKFILE
+		;;
+	restart)
+		stop
+		start
+		;;
+	set_tproxy_rule)
+		set_tproxy_rule
+		;;
+	set_redirect_rule)
+		set_redirect_rule
+		;;
+	*)
+		echo "Usage: $0 {start|stop|restart|reconfigure|status|set_tproxy_rule|set_redirect_rule}"
+		;;
+esac
