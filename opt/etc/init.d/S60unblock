@@ -108,10 +108,10 @@ case "$1" in
 		start
 		;;
 	set_tproxy_rule)
-		set_tproxy_rule
+		[ -e $RUNNING ] && set_tproxy_rule
 		;;
 	set_redirect_rule)
-		set_redirect_rule
+		[ -e $RUNNING ] && set_redirect_rule
 		;;
 	*)
 		echo "Usage: $0 {start|stop|restart|reconfigure|status|set_tproxy_rule|set_redirect_rule}"
