@@ -55,12 +55,14 @@ reconfigure(){
 	done
 
 	[ $DNSMASQ_CONF -nt $LOCKFILE ] && /opt/etc/init.d/S56dnsmasq restart &> /dev/null
+	return 0
 }
 
 start(){
 	init && \
 	set_tproxy_rule && \
 	set_redirect_rule && \
+	touch $RUNNING && \
 	reconfigure
 }
 
@@ -75,6 +77,7 @@ stop(){
 	ip rule del fwmark 0x1 table 100
 	ipset destroy $SETNAME
 	rmmod xt_TPROXY
+	rm -f $RUNNING
 }
 
 case "$1" in
@@ -82,12 +85,12 @@ case "$1" in
 		if [ -e $RUNNING ] ; then
 			echo "Unblock already running."
 		else
-			start && touch $RUNNING
+			start
 		fi
 		;;
 	stop)
 		if [ -e $RUNNING ] ; then
-			stop && rm -f $RUNNING
+			stop
 		else
 			echo "Unblock is not running."
 		fi
